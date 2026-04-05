@@ -3,6 +3,7 @@ members = [
     "engine-core",
     "engines/form-validator",
     "engines/data-table",
+    "engines/markdown",
     "cli",
 ]
 resolver = "2"

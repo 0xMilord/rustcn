@@ -1,0 +1,25 @@
+{
+  "name": "@rustcn/react",
+  "version": "0.1.0",
+  "description": "Performance-augmented React components powered by Rust WASM",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
+    "./table": { "import": "./dist/table.js", "types": "./dist/table.d.ts" },
+    "./form": { "import": "./dist/form.js", "types": "./dist/form.d.ts" },
+    "./input": { "import": "./dist/input.js", "types": "./dist/input.d.ts" },
+    "./command": { "import": "./dist/command.js", "types": "./dist/command.d.ts" },
+    "./modal": { "import": "./dist/modal.js", "types": "./dist/modal.d.ts" },
+    "./markdown": { "import": "./dist/markdown.js", "types": "./dist/markdown.d.ts" },
+    "./dashboard": { "import": "./dist/dashboard.js", "types": "./dist/dashboard.d.ts" },
+    "./shared": { "import": "./dist/shared.js", "types": "./dist/shared.d.ts" }
+  },
+  "files": ["dist"],
+  "scripts": { "build": "tsc", "test": "vitest run" },
+  "peerDependencies": { "react": ">=18.0.0" },
+  "devDependencies": { "typescript": "^5.3.0", "vitest": "^1.0.0", "@types/react": "^18.2.0" },
+  "dependencies": { "@rustcn/core": "0.1.0" },
+  "license": "MIT"
+}

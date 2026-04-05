@@ -1,0 +1,57 @@
+{
+  "version": "0.1.0",
+  "components": {
+    "table": {
+      "version": "0.1.0",
+      "description": "High-performance data table with sort, filter, paginate",
+      "files": ["RustTable.tsx", "useRustTable.ts", "index.ts"],
+      "engine": "data-table",
+      "fallback": "table.js",
+      "path": "components/table"
+    },
+    "form": {
+      "version": "0.1.0",
+      "description": "Multi-step form with instant validation",
+      "files": ["RustForm.tsx", "RustFormField.tsx", "useRustForm.ts", "index.ts"],
+      "engine": "form-validator",
+      "fallback": "validator.js",
+      "path": "components/form"
+    },
+    "input": {
+      "version": "0.1.0",
+      "description": "Smart input with real-time validation",
+      "files": ["RustInput.tsx", "index.ts"],
+      "path": "components/input"
+    },
+    "command": {
+      "version": "0.1.0",
+      "description": "Command palette with fuzzy search",
+      "files": ["RustCommand.tsx", "index.ts"],
+      "path": "components/command"
+    },
+    "modal": {
+      "version": "0.1.0",
+      "description": "Accessible dialog component",
+      "files": ["RustModal.tsx", "RustModalTrigger.tsx", "index.ts"],
+      "path": "components/modal"
+    },
+    "markdown": {
+      "version": "0.1.0",
+      "description": "Fast markdown renderer with XSS sanitization",
+      "files": ["RustMarkdown.tsx", "index.ts"],
+      "engine": "markdown",
+      "path": "components/markdown"
+    },
+    "dashboard": {
+      "version": "0.1.0",
+      "description": "Stat cards and KPI grids",
+      "files": ["StatCard.tsx", "KpiGrid.tsx", "index.ts"],
+      "path": "components/dashboard"
+    }
+  },
+  "engines": {
+    "form-validator": { "version": "0.1.0", "path": "engines/form-validator", "threshold": 10 },
+    "data-table": { "version": "0.1.0", "path": "engines/data-table", "threshold": 1000 },
+    "markdown": { "version": "0.1.0", "path": "engines/markdown", "threshold": 10240 }
+  }
+}

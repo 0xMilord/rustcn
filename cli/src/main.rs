@@ -1,15 +1,20 @@
 //! rustcn CLI — Install, benchmark, and manage rustcn components.
 //!
 //! # Commands
-//! - `init <project-name>` — Scaffold a new rustcn project
+//! - `init <project-name>` — Scaffold a new rustcn project from templates
 //! - `add <component>` — Add a component to your project
 //! - `bench <engine>` — Run benchmark comparing WASM vs JS
 //! - `snippet <component>` — Copy stealable component code
+//! - `list` — List available components and engines
+//! - `help` — Show this help message
 
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
+
+/// Registry data embedded at compile time.
+const REGISTRY_JSON: &str = include_str!("../../registry/registry.json");
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -25,6 +30,7 @@ fn main() {
         "add" => cmd_add(&args[1..]),
         "bench" => cmd_bench(&args[1..]),
         "snippet" => cmd_snippet(&args[1..]),
+        "list" => cmd_list(),
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
@@ -52,6 +58,7 @@ fn print_help() {
     println!("    add <component>        Add a component to your project");
     println!("    bench <engine>         Run benchmark: WASM vs JS");
     println!("    snippet <component>    Copy stealable component code");
+    println!("    list                   List available components and engines");
     println!("    help                   Show this help message");
     println!();
     println!("EXAMPLES:");
@@ -59,7 +66,12 @@ fn print_help() {
     println!("    rustcn add table");
     println!("    rustcn bench table");
     println!("    rustcn snippet table");
+    println!("    rustcn list");
 }
+
+// ---------------------------------------------------------------------------
+// Template-based init
+// ---------------------------------------------------------------------------
 
 fn cmd_init(args: &[String]) -> Result<(), ()> {
     let project_name = args.first().ok_or_else(|| {
@@ -74,140 +86,177 @@ fn cmd_init(args: &[String]) -> Result<(), ()> {
 
     println!("Creating rustcn project: {}", project_name);
 
-    // Create directory structure
-    fs::create_dir_all(project_path.join("src")).map_err(|e| {
-        eprintln!("Failed to create project: {}", e);
-    })?;
+    // Templates live at ../../templates/default relative to this binary's source
+    // At runtime we resolve from the workspace root (two levels up from cli/).
+    let templates_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| {
+            eprintln!("Cannot resolve workspace root");
+        })?
+        .join("templates")
+        .join("default");
 
-    // Write package.json
-    let package_json = format!(
-        r#"{{
-  "name": "{}",
-  "version": "0.1.0",
-  "private": true,
-  "dependencies": {{
-    "@rustcn/react": "0.1.0",
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "tailwindcss": "^3.4.0"
-  }}
-}}
-"#,
-        project_name
-    );
-    fs::write(project_path.join("package.json"), package_json).map_err(|e| {
-        eprintln!("Failed to write package.json: {}", e);
-    })?;
+    if !templates_root.exists() {
+        eprintln!("Template directory not found at {:?}", templates_root);
+        return Err(());
+    }
 
-    // Write rustcn.toml
-    let config = r#"[project]
-name = "my-app"
-target = "web"
-
-[components]
-table = "0.1.0"
-form = "0.1.0"
-
-[fallback]
-enabled = true
-threshold_auto = true
-
-[dev]
-hot_reload = true
-port = 3000
-"#;
-    fs::write(project_path.join("rustcn.toml"), config).map_err(|e| {
-        eprintln!("Failed to write rustcn.toml: {}", e);
-    })?;
-
-    // Write src/App.tsx
-    let app_tsx = r#"import { RustTable } from '@rustcn/react';
-
-// Generate 10,000 sample rows
-const generateRows = (count: number) =>
-  Array.from({ length: count }, (_, i) => ({
-    id: i + 1,
-    name: `User ${i + 1}`,
-    email: `user${i + 1}@example.com`,
-    age: 18 + (i % 50),
-    status: i % 3 === 0 ? 'active' : i % 3 === 1 ? 'inactive' : 'pending',
-  }));
-
-export default function App() {
-  const data = generateRows(10000);
-
-  return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">rustcn Dashboard</h1>
-      <RustTable data={data} sort filter virtualize />
-    </div>
-  );
-}
-"#;
-    fs::write(project_path.join("src").join("App.tsx"), app_tsx).map_err(|e| {
-        eprintln!("Failed to write App.tsx: {}", e);
-    })?;
+    // Recursively copy template files, substituting {{PROJECT_NAME}}.
+    copy_template_dir(&templates_root, project_path, project_name)?;
 
     println!("Project created successfully!");
     println!();
     println!("Next steps:");
     println!("  cd {}", project_name);
     println!("  npm install");
-    println!("  rustcn add table   # Add the table component");
-    println!("  npm run dev        # Start development server");
+    println!("  npm run dev");
+    println!();
+    println!("Available components (add with `rustcn add <name>`):");
+    if let Ok(reg) = serde_json::from_str::<serde_json::Value>(REGISTRY_JSON) {
+        if let Some(components) = reg.get("components").and_then(|v| v.as_object()) {
+            for (name, entry) in components {
+                let desc = entry.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                println!("  {:<12} — {}", name, desc);
+            }
+        }
+    }
 
     Ok(())
 }
+
+/// Recursively copy `src` into `dst`, replacing `{{PROJECT_NAME}}` in file
+/// names and file contents.
+fn copy_template_dir(src: &Path, dst: &Path, project_name: &str) -> Result<(), ()> {
+    fs::create_dir_all(dst).map_err(|e| {
+        eprintln!("Failed to create project directory: {}", e);
+    })?;
+
+    for entry in fs::read_dir(src).map_err(|e| {
+        eprintln!("Failed to read template directory: {}", e);
+    })? {
+        let entry = entry.map_err(|e| {
+            eprintln!("Failed to read directory entry: {}", e);
+        })?;
+
+        let file_type = entry.file_type().map_err(|e| {
+            eprintln!("Failed to read file type: {}", e);
+        })?;
+
+        let src_path = entry.path();
+        // Substitute in file names
+        let raw_name = entry.file_name().to_string_lossy().to_string();
+        let dst_name = raw_name.replace("{{PROJECT_NAME}}", project_name);
+        let dst_path = dst.join(&dst_name);
+
+        if file_type.is_dir() {
+            copy_template_dir(&src_path, &dst_path, project_name)?;
+        } else {
+            let content = fs::read_to_string(&src_path).unwrap_or_else(|_| {
+                // Binary file — copy as-is
+                let bytes = fs::read(&src_path).expect("Failed to read file");
+                fs::write(&dst_path, &bytes).expect("Failed to write file");
+                return String::new();
+            });
+            if content.is_empty() && src_path.extension().map_or(false, |ext| ext != "map") {
+                continue; // already written as binary
+            }
+            let substituted = content.replace("{{PROJECT_NAME}}", project_name);
+            fs::write(&dst_path, substituted).map_err(|e| {
+                eprintln!("Failed to write {:?}: {}", dst_path, e);
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Add component
+// ---------------------------------------------------------------------------
 
 fn cmd_add(args: &[String]) -> Result<(), ()> {
     let component = args.first().ok_or_else(|| {
         eprintln!("Usage: rustcn add <component>");
         eprintln!();
         eprintln!("Available components:");
-        eprintln!("  table     - High-performance data table");
-        eprintln!("  form      - Multi-step form with instant validation");
-        eprintln!("  input     - Smart input with real-time validation");
-        eprintln!("  command   - Command palette with fuzzy search");
-        eprintln!("  modal     - Dialog/modal component");
-        eprintln!("  markdown  - Fast markdown renderer");
+        if let Ok(reg) = serde_json::from_str::<serde_json::Value>(REGISTRY_JSON) {
+            if let Some(components) = reg.get("components").and_then(|v| v.as_object()) {
+                for (name, entry) in components {
+                    let desc = entry.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                    println!("  {:<12} — {}", name, desc);
+                }
+            }
+        }
     })?;
 
     let component_name = component.as_str();
 
-    // List of valid components
-    let valid = ["table", "form", "input", "command", "modal", "markdown"];
-    if !valid.contains(&component_name) {
+    // Validate against registry
+    let reg: serde_json::Value = serde_json::from_str(REGISTRY_JSON).map_err(|e| {
+        eprintln!("Failed to parse registry: {}", e);
+    })?;
+
+    let components = reg.get("components").and_then(|v| v.as_object()).ok_or_else(|| {
+        eprintln!("Registry has no components key");
+    })?;
+
+    if !components.contains_key(component_name) {
         eprintln!("Unknown component: {}", component_name);
-        eprintln!("Run `rustcn help` for available components.");
+        eprintln!("Run `rustcn list` for available components.");
         return Err(());
     }
+
+    let entry = &components[component_name];
+    let files: Vec<&str> = entry
+        .get("files")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+
+    let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
 
     println!("Adding '{}' component...", component_name);
     println!();
     println!("This will install:");
-    println!("  - React component (copy-pasteable)");
-    println!("  - Hook for custom integration");
-    println!("  - WASM engine (auto-bundled)");
-    println!("  - JS fallback (always included)");
+    for f in &files {
+        println!("  - {}/{}", path, f);
+    }
+    if let Some(engine) = entry.get("engine").and_then(|v| v.as_str()) {
+        println!("  - WASM engine: {}", engine);
+    }
+    if let Some(fallback) = entry.get("fallback").and_then(|v| v.as_str()) {
+        println!("  - JS fallback: {}", fallback);
+    }
     println!();
     println!("Component '{}' is ready to use!", component_name);
-    println!("Import it in your project and start building.");
+    println!("Import it from '@rustcn/react' and start building.");
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Bench
+// ---------------------------------------------------------------------------
 
 fn cmd_bench(args: &[String]) -> Result<(), ()> {
     let engine = args.first().ok_or_else(|| {
         eprintln!("Usage: rustcn bench <engine>");
         eprintln!();
         eprintln!("Available engines:");
-        eprintln!("  table      - Data table sort/filter/paginate");
-        eprintln!("  validator  - Form validation");
+        if let Ok(reg) = serde_json::from_str::<serde_json::Value>(REGISTRY_JSON) {
+            if let Some(engines) = reg.get("engines").and_then(|v| v.as_object()) {
+                for (name, entry) in engines {
+                    let threshold = entry.get("threshold").and_then(|v| v.as_u64()).unwrap_or(0);
+                    println!("  {:<20} — threshold: {}", name, threshold);
+                }
+            }
+        }
     })?;
 
     match engine.as_str() {
-        "table" => bench_table(),
-        "validator" => bench_validator(),
+        "table" | "data-table" => bench_table(),
+        "validator" | "form-validator" => bench_validator(),
         other => {
             eprintln!("Unknown engine: {}", other);
             eprintln!("Available: table, validator");
@@ -297,7 +346,7 @@ fn bench_table() -> Result<(), ()> {
 
     let speedup = if rust_avg > 0.0 { js_avg / rust_avg } else { f64::MAX };
     println!("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓");
-    println!("┃  Result: {:.0}x faster ⚡                ┃", speedup);
+    println!("┃  Result: {:.0}x faster                   ┃", speedup);
     println!("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛");
 
     // Filter + paginate benchmark
@@ -321,7 +370,7 @@ fn bench_table() -> Result<(), ()> {
     let page_1 = &filtered[0..page_size.min(filtered.len())];
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
-    println!("  Filtered: {} rows → {} pages", filtered.len(), total_pages);
+    println!("  Filtered: {} rows -> {} pages", filtered.len(), total_pages);
     println!("  Page 1: {} rows in {:.1}ms", page_1.len(), elapsed);
 
     Ok(())
@@ -386,26 +435,86 @@ fn bench_validator() -> Result<(), ()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Snippet
+// ---------------------------------------------------------------------------
+
 fn cmd_snippet(args: &[String]) -> Result<(), ()> {
     let component = args.first().ok_or_else(|| {
         eprintln!("Usage: rustcn snippet <component>");
     })?;
 
-    let valid = ["table", "form", "input", "command", "modal", "markdown"];
-    if !valid.contains(&component.as_str()) {
+    let reg: serde_json::Value = serde_json::from_str(REGISTRY_JSON).map_err(|e| {
+        eprintln!("Failed to parse registry: {}", e);
+    })?;
+
+    let components = reg.get("components").and_then(|v| v.as_object()).ok_or_else(|| {
+        eprintln!("Registry has no components key");
+    })?;
+
+    if !components.contains_key(component.as_str()) {
         eprintln!("Unknown component: {}", component);
+        eprintln!("Run `rustcn list` for available components.");
         return Err(());
     }
 
-    println!("Component '{}' snippet ready!", component);
+    let entry = &components[component.as_str()];
+    let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let files: Vec<&str> = entry
+        .get("files")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+
+    println!("Component '{}' files:", component);
+    println!();
+    for f in &files {
+        println!("  {}/{}", path, f);
+    }
     println!();
     println!("Copy the component code into your project.");
     println!("You own it. Customize it. Make it yours.");
-    println!();
-    println!("See: components/{}/", component);
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// List
+// ---------------------------------------------------------------------------
+
+fn cmd_list() -> Result<(), ()> {
+    let reg: serde_json::Value = serde_json::from_str(REGISTRY_JSON).map_err(|e| {
+        eprintln!("Failed to parse registry: {}", e);
+    })?;
+
+    println!("Components:");
+    println!();
+    if let Some(components) = reg.get("components").and_then(|v| v.as_object()) {
+        for (name, entry) in components {
+            let desc = entry.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            let version = entry.get("version").and_then(|v| v.as_str()).unwrap_or("");
+            let engine = entry.get("engine").and_then(|v| v.as_str()).unwrap_or("none");
+            println!("  {:<12} v{}  ({})  engine: {}", name, version, desc, engine);
+        }
+    }
+
+    println!();
+    println!("Engines:");
+    println!();
+    if let Some(engines) = reg.get("engines").and_then(|v| v.as_object()) {
+        for (name, entry) in engines {
+            let threshold = entry.get("threshold").and_then(|v| v.as_u64()).unwrap_or(0);
+            let version = entry.get("version").and_then(|v| v.as_str()).unwrap_or("");
+            println!("  {:<20} v{}  threshold: {}", name, version, threshold);
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 fn std_dev(values: &[f64]) -> f64 {
     if values.len() < 2 {
