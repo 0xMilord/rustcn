@@ -47,15 +47,45 @@ jobs:
         run: wasm-pack build engines/form-validator --target web --release
       - name: Build data table WASM
         run: wasm-pack build engines/data-table --target web --release
+      - name: Build markdown WASM
+        run: wasm-pack build engines/markdown --target web --release
       - name: Check WASM binary sizes
         run: |
+          MAX_SIZE=51200  # 50KB
           for f in engines/*/pkg/*.wasm; do
             size=$(wc -c < "$f")
             echo "$f: $size bytes"
-            if [ "$size" -gt 100000 ]; then
-              echo "WARNING: $f exceeds 100KB uncompressed"
+            if [ "$size" -gt "$MAX_SIZE" ]; then
+              echo "::warning::$f exceeds 50KB ($size bytes) — consider optimization"
             fi
           done
+
+  benchmark-regression:
+    name: Rust -- Benchmark Regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI
+        run: cargo build --bin rustcn --release
+      - name: Run table benchmark
+        run: |
+          OUTPUT=$(target/release/rustcn bench table 2>&1)
+          echo "$OUTPUT"
+          # Extract speedup ratio
+          SPEEDUP=$(echo "$OUTPUT" | grep -oP 'Result: \K[0-9]+' || echo "0")
+          if [ "$SPEEDUP" -lt 1 ]; then
+            echo "::error::Benchmark regression: speedup < 1x"
+            exit 1
+          fi
+          echo "Speedup: ${SPEEDUP}x"
+      - name: Run validator benchmark
+        run: |
+          target/release/rustcn bench validator
+      - name: Run markdown benchmark
+        run: |
+          target/release/rustcn bench markdown
 
   typescript-check:
     name: TypeScript -- Lint & Type Check
@@ -71,11 +101,11 @@ jobs:
         run: cd bindings && npx tsc --noEmit
 
   docs-check:
-    name: Docs -- Verify README
+    name: Docs -- Verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify markdown files parse
+      - name: Verify markdown files are non-empty
         run: |
           for f in *.md; do
             if [ ! -s "$f" ]; then
@@ -84,3 +114,10 @@ jobs:
             fi
           done
           echo "All docs OK"
+      - name: Verify .gitignore
+        run: |
+          if ! grep -q "node_modules" .gitignore; then
+            echo "ERROR: node_modules not in .gitignore"
+            exit 1
+          fi
+          echo ".gitignore OK"

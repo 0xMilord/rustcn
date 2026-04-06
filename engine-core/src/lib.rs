@@ -45,6 +45,7 @@ pub mod config;
 pub mod error;
 pub mod memory;
 pub mod threshold;
+pub mod performance;
 
 // Re-exports for convenient access
 pub use config::EngineConfig;
