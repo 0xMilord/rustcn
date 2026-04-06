@@ -77,7 +77,7 @@ interface FormContextValue {
 
 const FormContext = createContext<FormContextValue | null>(null);
 
-function useFormContext(): FormContextValue {
+export function useFormContext(): FormContextValue {
   const ctx = useContext(FormContext);
   if (!ctx) throw new Error('FormField must be used within RustForm');
   return ctx;
