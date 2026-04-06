@@ -1,0 +1,25 @@
+{
+  "name": "@rustcn/core",
+  "version": "0.1.0",
+  "description": "Core bindings for rustcn WASM engines \u2014 detection, thresholds, and JS fallbacks",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
+    "./detection": { "import": "./dist/detection.js", "types": "./dist/detection.d.ts" },
+    "./threshold": { "import": "./dist/threshold.js", "types": "./dist/threshold.d.ts" },
+    "./fallbacks": { "import": "./dist/fallbacks/index.js", "types": "./dist/fallbacks/index.d.ts" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0",
+    "jsdom": "^24.0.0"
+  },
+  "license": "MIT"
+}

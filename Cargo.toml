@@ -5,6 +5,7 @@ members = [
     "engines/data-table",
     "engines/markdown",
     "cli",
+    "tests",
 ]
 resolver = "2"
 
