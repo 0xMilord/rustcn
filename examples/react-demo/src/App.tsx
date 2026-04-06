@@ -6,7 +6,7 @@
  * A full-page React product demo that would impress a CTO.
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 
 // ---------------------------------------------------------------------------
 // Data generation -- 10,000 rows of realistic test data
@@ -442,9 +442,8 @@ function BenchmarkDisplay() {
       }
       const rustAvg = rustTimes.reduce((a, b) => a + b, 0) / rustTimes.length;
 
-      // Filter measurement
       const filterStart = performance.now();
-      const filtered = sampleData.filter(r => r.status === 'Active');
+      sampleData.filter(r => r.status === 'Active');
       const filterTime = performance.now() - filterStart;
 
       setResults({
@@ -548,26 +547,6 @@ function ComponentShowcase() {
   const [formStep, setFormStep] = useState(1);
   const [formData, setFormData] = useState({ name: '', email: '', message: '' });
   const [commandQuery, setCommandQuery] = useState('');
-  const [markdownContent] = useState(`# rustcn Components
-
-## Performance-first design
-Every component is built with **performance** as a core requirement, not an afterthought.
-
-### Key principles
-- \`useMemo\` for expensive computations
-- Pagination for large datasets
-- Virtual rendering for long lists
-- WASM-powered validation engine
-
-### The result
-Components that feel **instant** even under heavy load.
-
-> "If the dev doesn't FEEL the speed, the entire architecture is irrelevant."
-
----
-
-Built with Rust and React. Shipped as copy-paste components.
-`);
 
   const commandItems = [
     { id: '1', label: 'Create Table', description: 'Generate a new table component', group: 'Tables', shortcut: 'Cmd+T' },
@@ -586,16 +565,6 @@ Built with Rust and React. Shipped as copy-paste components.
         item.description.toLowerCase().includes(commandQuery.toLowerCase())
       )
     : commandItems;
-
-  const statusColor = (s: string) => {
-    switch (s) {
-      case 'Active': return 'bg-emerald-100 text-emerald-700';
-      case 'Inactive': return 'bg-gray-100 text-gray-600';
-      case 'Pending': return 'bg-amber-100 text-amber-700';
-      case 'On Leave': return 'bg-blue-100 text-blue-700';
-      default: return 'bg-gray-100 text-gray-600';
-    }
-  };
 
   return (
     <div className="space-y-8">
