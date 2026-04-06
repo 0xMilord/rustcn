@@ -14,8 +14,9 @@
  * ```
  */
 
-import { useMemo, useCallback, useRef, useState } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import { fallbacks, shouldUseWasm, getThreshold, warnIfBelowThreshold } from '@rustcn/core';
+import { wasm } from '@rustcn/core/wasm';
 import type { SortSpec, FilterCondition, ColumnDef } from './RustTable.js';
 
 export interface UseRustTableOptions {
@@ -55,6 +56,20 @@ export function useRustTable(
   const [currentPage, setCurrentPage] = useState(pagination?.page ?? 1);
   const [pageSize, setPageSizeState] = useState(pagination?.pageSize ?? 25);
 
+  // Result state (async from WASM or sync from JS)
+  const [result, setResult] = useState<{
+    rows: Record<string, unknown>[];
+    totalRows: number;
+    filteredRows: number;
+    totalPages: number;
+    page: number;
+    pageSize: number;
+    columns: ColumnDef[];
+    executionTimeMs: number;
+  } | null>(null);
+
+  const [isWasm, setIsWasm] = useState(false);
+
   // Auto-generate columns
   const autoColumns = useMemo<ColumnDef[]>(() => {
     if (customColumns) return customColumns;
@@ -66,35 +81,56 @@ export function useRustTable(
   const useWasm = useMemo(() => shouldUseWasm('data-table', data.length), [data.length]);
 
   // Warn if below threshold
-  useMemo(() => { warnIfBelowThreshold('data-table', data.length); }, [data.length]);
+  useEffect(() => {
+    warnIfBelowThreshold('data-table', data.length);
+  }, [data.length]);
 
   // Execute table operations
-  const result = useMemo(() => {
-    const start = performance.now();
+  useEffect(() => {
+    let cancelled = false;
 
-    // Filter
-    let filtered = data;
-    if (enableFilter && activeFilter) {
-      filtered = data.filter(row => matchesFilter(row, activeFilter));
+    async function execute() {
+      const start = performance.now();
+
+      // Prepare sort specs
+      const sortSpecs: Array<{ column: string; direction: 'asc' | 'desc' }> = [];
+      if (enableSort && activeSort) {
+        sortSpecs.push(activeSort);
+      }
+
+      // Prepare filters
+      const filters: FilterCondition[] = [];
+      if (enableFilter && activeFilter) {
+        filters.push(activeFilter);
+      }
+
+      // Prepare pagination
+      const pag = { page: currentPage, pageSize };
+
+      // Execute via WASM dispatcher (auto-routes to WASM or JS)
+      const tableResult = await wasm.executeTable(data, autoColumns, sortSpecs, filters, pag);
+
+      if (!cancelled) {
+        setResult({
+          rows: tableResult.rows,
+          totalRows: tableResult.total_rows,
+          filteredRows: tableResult.filtered_rows,
+          totalPages: tableResult.total_pages,
+          page: tableResult.page,
+          pageSize: tableResult.page_size,
+          columns: tableResult.columns,
+          executionTimeMs: tableResult.execution_time_ms,
+        });
+        setIsWasm(useWasm);
+      }
     }
 
-    // Sort
-    let sorted = filtered;
-    if (enableSort && activeSort) {
-      sorted = [...filtered].sort((a, b) => compareValues(a[activeSort.column], b[activeSort.column], activeSort.direction));
-    }
+    execute();
 
-    // Paginate
-    const totalRows = data.length;
-    const filteredCount = sorted.length;
-    const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
-    const page = Math.min(currentPage, totalPages);
-    const startIdx = (page - 1) * pageSize;
-    const endIdx = startIdx + pageSize;
-    const rows = sorted.slice(startIdx, endIdx);
-
-    return { rows, totalRows, filteredRows: filteredCount, totalPages, page, pageSize, columns: autoColumns, executionTimeMs: performance.now() - start };
-  }, [data, activeSort, activeFilter, currentPage, pageSize, enableSort, enableFilter, autoColumns]);
+    return () => {
+      cancelled = true;
+    };
+  }, [data, activeSort, activeFilter, currentPage, pageSize, enableSort, enableFilter, autoColumns, useWasm]);
 
   const sortBy = useCallback((column: string, direction: 'asc' | 'desc') => {
     setActiveSort({ column, direction });
@@ -113,6 +149,25 @@ export function useRustTable(
     setCurrentPage(1);
   }, []);
 
+  // Return loading state until first execution completes
+  if (!result) {
+    return {
+      rows: [],
+      columns: autoColumns,
+      totalRows: data.length,
+      filteredRows: data.length,
+      totalPages: 1,
+      page: 1,
+      pageSize,
+      executionTimeMs: 0,
+      usingWasm: false,
+      sortBy,
+      setFilter,
+      goToPage,
+      setPageSize,
+    };
+  }
+
   return {
     rows: result.rows,
     columns: result.columns,
@@ -122,54 +177,10 @@ export function useRustTable(
     page: result.page,
     pageSize: result.pageSize,
     executionTimeMs: result.executionTimeMs,
-    usingWasm: useWasm,
+    usingWasm: isWasm,
     sortBy,
     setFilter,
     goToPage,
     setPageSize,
   };
-}
-
-// Helper functions (same as JS fallback)
-function matchesFilter(row: Record<string, unknown>, condition: FilterCondition): boolean {
-  const value = row[condition.column];
-  if (value === undefined) return false;
-  return applyOperator(value, condition.operator, condition.value);
-}
-
-function applyOperator(value: unknown, operator: string, target: unknown): boolean {
-  switch (operator) {
-    case 'eq': return value === target;
-    case 'neq': return value !== target;
-    case 'gt': return typeof value === 'number' && typeof target === 'number' && value > target;
-    case 'gte': return typeof value === 'number' && typeof target === 'number' && value >= target;
-    case 'lt': return typeof value === 'number' && typeof target === 'number' && value < target;
-    case 'lte': return typeof value === 'number' && typeof target === 'number' && value <= target;
-    case 'contains': {
-      const s = typeof value === 'string' ? value.toLowerCase() : '';
-      const t = typeof target === 'string' ? target.toLowerCase() : '';
-      return s.includes(t);
-    }
-    case 'startswith': {
-      const s = typeof value === 'string' ? value.toLowerCase() : '';
-      const t = typeof target === 'string' ? target.toLowerCase() : '';
-      return s.startsWith(t);
-    }
-    case 'endswith': {
-      const s = typeof value === 'string' ? value.toLowerCase() : '';
-      const t = typeof target === 'string' ? target.toLowerCase() : '';
-      return s.endsWith(t);
-    }
-    default: return true;
-  }
-}
-
-function compareValues(a: unknown, b: unknown, direction: 'asc' | 'desc'): number {
-  if (a === undefined && b === undefined) return 0;
-  if (a === undefined) return -1;
-  if (b === undefined) return 1;
-  let cmp: number;
-  if (typeof a === 'number' && typeof b === 'number') { cmp = a - b; }
-  else { const sa = String(a).toLowerCase(); const sb = String(b).toLowerCase(); cmp = sa < sb ? -1 : sa > sb ? 1 : 0; }
-  return direction === 'desc' ? -cmp : cmp;
 }

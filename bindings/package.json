@@ -21,6 +21,10 @@
     "./fallbacks": {
       "import": "./dist/fallbacks/index.js",
       "types": "./dist/fallbacks/index.d.ts"
+    },
+    "./wasm": {
+      "import": "./dist/wasm/index.js",
+      "types": "./dist/wasm/index.d.ts"
     }
   },
   "files": ["dist"],

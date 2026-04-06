@@ -12,3 +12,6 @@
 export { detectRuntime, resetRuntimeInfo, type RuntimeInfo } from './detection.js';
 export { shouldUseWasm, getThreshold, warnIfBelowThreshold, type EngineType, THRESHOLDS } from './threshold.js';
 export * as fallbacks from './fallbacks/index.js';
+
+// WASM engine bindings — the critical glue
+export * as wasm from './wasm/index.js';

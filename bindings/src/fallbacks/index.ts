@@ -7,3 +7,4 @@
 
 export * from './validator.js';
 export * from './table.js';
+export * from './markdown.js';

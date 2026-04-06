@@ -172,12 +172,12 @@ fn copy_template_dir(src: &Path, dst: &Path, project_name: &str) -> Result<(), (
 }
 
 // ---------------------------------------------------------------------------
-// Add component
+// Add component — actually copies files to target project
 // ---------------------------------------------------------------------------
 
 fn cmd_add(args: &[String]) -> Result<(), ()> {
     let component = args.first().ok_or_else(|| {
-        eprintln!("Usage: rustcn add <component>");
+        eprintln!("Usage: rustcn add <component> [target-dir]");
         eprintln!();
         eprintln!("Available components:");
         if let Ok(reg) = serde_json::from_str::<serde_json::Value>(REGISTRY_JSON) {
@@ -191,6 +191,7 @@ fn cmd_add(args: &[String]) -> Result<(), ()> {
     })?;
 
     let component_name = component.as_str();
+    let target_dir = args.get(1).map(|s| s.as_str()).unwrap_or(".");
 
     // Validate against registry
     let reg: serde_json::Value = serde_json::from_str(REGISTRY_JSON).map_err(|e| {
@@ -214,23 +215,66 @@ fn cmd_add(args: &[String]) -> Result<(), ()> {
         .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
         .unwrap_or_default();
 
-    let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let rel_path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
 
-    println!("Adding '{}' component...", component_name);
+    println!("Adding '{}' component to {}...", component_name, target_dir);
     println!();
-    println!("This will install:");
-    for f in &files {
-        println!("  - {}/{}", path, f);
+
+    // Resolve workspace root to find component source files
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| {
+            eprintln!("Cannot resolve workspace root");
+        })?;
+
+    let target_path = Path::new(target_dir);
+    fs::create_dir_all(target_path).map_err(|e| {
+        eprintln!("Failed to create target directory: {}", e);
+    })?;
+
+    // Create component subdirectory
+    let component_dir = target_path.join("components").join(component_name);
+    fs::create_dir_all(&component_dir).map_err(|e| {
+        eprintln!("Failed to create component directory: {}", e);
+    })?;
+
+    // Copy each component file
+    let mut copied = 0;
+    for file in &files {
+        // Source: workspace/components/<name>/<file>
+        let src_path = workspace_root.join("components").join(component_name).join(file);
+
+        if !src_path.exists() {
+            eprintln!("  WARNING: Source file not found: {:?}", src_path);
+            continue;
+        }
+
+        // Dest: target/components/<name>/<file>
+        let dst_path = &component_dir.join(file);
+
+        fs::copy(&src_path, dst_path).map_err(|e| {
+            eprintln!("  Failed to copy {:?} -> {:?}: {}", src_path, dst_path, e);
+        })?;
+
+        println!("  ✓ {}", file);
+        copied += 1;
     }
+
+    println!();
+    println!("Installed {} file(s) to {:?}", copied, component_dir);
+    println!();
+    println!("Import in your code:");
+    println!("  import {{ Rust{} }} from './components/{}/index';", 
+             component_name.chars().next().unwrap().to_uppercase(),
+             component_name);
+    println!();
+    println!("You own this code. Customize it. Make it yours.");
     if let Some(engine) = entry.get("engine").and_then(|v| v.as_str()) {
-        println!("  - WASM engine: {}", engine);
+        println!();
+        println!("This component uses the '{}' WASM engine.", engine);
+        println!("The engine will be bundled automatically when you run `npm install`.");
     }
-    if let Some(fallback) = entry.get("fallback").and_then(|v| v.as_str()) {
-        println!("  - JS fallback: {}", fallback);
-    }
-    println!();
-    println!("Component '{}' is ready to use!", component_name);
-    println!("Import it from '@rustcn/react' and start building.");
 
     Ok(())
 }
